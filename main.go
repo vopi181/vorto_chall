@@ -57,33 +57,36 @@ func pointDist(p1 *Point, p2 *Point) float64 {
 // Sum point dist from depot to first load, from first load to second load, etc.
 // until the last load to the depot
 func pathDist(path []Load) float64 {
+	dist := 0.0
 
-	sanityCheckCost := 0.0
 	for i, load := range path {
-		sanityCheckCost += load.distStartEnd
+		dist += load.distStartEnd
 		if i == 0 {
-			sanityCheckCost += load.distStartDepot
+			dist += load.distStartDepot
 		}
 		if i == len(path)-1 {
-			sanityCheckCost += load.distEndDepot
+			dist += load.distEndDepot
 		}
 		// add distance from load to next load
 		if i < len(path)-1 {
-			sanityCheckCost += pointDist(load.end, path[i+1].start)
+			dist += pointDist(load.end, path[i+1].start)
 		}
 
 	}
 
-	return sanityCheckCost
+	return dist
 }
 
-func successor(path []Load, loads []Load) []Load {
-	ret := make([]Load, 0)
+func successor(path []Load, loads []Load) [][]Load {
+	ret := make([][]Load, 0)
 
 	for _, load := range loads {
-		tmp := append(path, load)
-		if pathDist(tmp) < MAX_DIST {
+		tmp := make([]Load, len(path))
+		copy(tmp, path)
+		tmp = append(tmp, load)
+		tmpDist := pathDist(tmp)
 
+		if tmpDist < MAX_DIST {
 			found := false
 			for _, p := range path {
 				if p.loadno == load.loadno {
@@ -91,31 +94,29 @@ func successor(path []Load, loads []Load) []Load {
 					break
 				}
 			}
+
 			if !found {
-				ret = append(ret, load)
+				ret = append(ret, tmp)
 			}
 		}
 	}
+
 	return ret
 }
 
-func heuristic(drivers [][]int) float64 {
+func heuristic(drivers [][]Load) float64 {
 	ret := 0.0
-	for _, driver := range drivers {
-		// convert driver to path
-		tmp_loads := make([]Load, 0)
-		for _, load := range driver {
-			tmp_loads = append(tmp_loads, loads[load-1])
-		}
-		ret += pathDist(tmp_loads)
-		ret += float64(500 * len(drivers))
 
+	// total cost is 500 * number of drivers + distance
+	for _, driver := range drivers {
+		ret += pathDist(driver)
+		ret += float64(500 * len(drivers))
 	}
 
 	// weight how close starting points are to each other and drop off points are to each other
 	// heuristicilly finding neighbors
-	ret -= (loads[drivers[0][0]-1].distStartDepot) * 5
-	ret -= (loads[drivers[len(drivers)-1][len(drivers[len(drivers)-1])-1]-1].distEndDepot) * 5
+	ret -= drivers[0][0].distStartDepot * 5
+	ret -= drivers[len(drivers)-1][len(drivers[len(drivers)-1])-1].distEndDepot * 5
 
 	return ret
 }
@@ -154,14 +155,12 @@ func main() {
 	queueLoads := make([]Load, len(loads))
 	copy(queueLoads, loads)
 
-	// sort queue_loads by closet
-
-	var drivers [][]int
-	currDriver := make([]int, 0)
+	var drivers [][]Load
+	currDriver := make([]Load, 0)
 
 	startingPath := []Load{queueLoads[0]}
 	queueLoads = queueLoads[1:]
-	currDriver = append(currDriver, startingPath[0].loadno)
+	currDriver = append(currDriver, startingPath[0])
 
 	for len(queueLoads) >= 0 {
 
@@ -171,32 +170,19 @@ func main() {
 		bestPathIndex := 0
 
 		for _, v := range successor(startingPath, queueLoads) {
-			tmpPath := append(startingPath, v)
-			// make tmp drivers
-			tmpDrivers := make([][]int, 0)
-			tmpDrivers = append(tmpDrivers, drivers...)
-
-			var tmpCurrDriver []int
-			tmpCurrDriver = append(tmpCurrDriver, v.loadno)
-			tmpDrivers = append(tmpDrivers, tmpCurrDriver)
+			tmpDrivers := make([][]Load, len(drivers))
+			copy(tmpDrivers, drivers)
+			tmpDrivers = append(tmpDrivers, v)
 
 			tmpHeuristic := heuristic(tmpDrivers)
 			if tmpHeuristic < bestHeuristic {
 				bestHeuristic = tmpHeuristic
-				bestPath = tmpPath
-				bestPathIndex = v.loadno
+				bestPath = v
+				bestPathIndex = v[len(v)-1].loadno
 			}
-
 		}
 
 		if len(bestPath) == 0 {
-
-			sanityCheckCost := 0.0
-			for _, load := range currDriver {
-				sanityCheckCost += loads[load-1].distStartEnd
-			}
-			sanityCheckCost += loads[currDriver[len(currDriver)-1]-1].distEndDepot
-			sanityCheckCost += loads[currDriver[0]-1].distStartDepot
 
 			drivers = append(drivers, currDriver)
 			currDriver = nil
@@ -206,14 +192,14 @@ func main() {
 			}
 
 			startingPath = []Load{queueLoads[0]}
-			currDriver = append(currDriver, queueLoads[0].loadno)
+			currDriver = append(currDriver, queueLoads[0])
 
 			// remove first load from queue_loads
 			queueLoads = queueLoads[1:]
 			continue
+		} else {
+			currDriver = bestPath
 		}
-
-		currDriver = append(currDriver, bestPathIndex)
 
 		// remove best_path from queue_loads
 		for i, load := range queueLoads {
@@ -224,23 +210,30 @@ func main() {
 		}
 		// set starting_path to best_path
 		startingPath = bestPath
-
 	}
 
 	for _, v := range drivers {
 		fmt.Print("[")
 		if len(v) == 1 {
-			fmt.Print(v[0])
+			fmt.Print(v[0].loadno)
 		} else {
 			for i, load := range v {
 				if i == len(v)-1 {
-					fmt.Print(load)
+					fmt.Print(load.loadno)
 				} else {
-					fmt.Print(load, ",")
+					fmt.Print(load.loadno, ",")
 				}
 			}
 		}
 
 		fmt.Print("]\n")
+
+		// assert pathDist(v) <= MAX_DIST
+		// basic sanity check
+		if pathDist(v) > MAX_DIST {
+			panic("pathDist(v) > MAX_DIST")
+		}
+
 	}
+
 }
